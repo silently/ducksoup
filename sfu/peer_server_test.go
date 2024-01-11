@@ -2,6 +2,7 @@ package sfu
 
 import (
 	"encoding/json"
+	"regexp"
 	"testing"
 	"time"
 
@@ -16,7 +17,7 @@ func messageInWithPayload(kind string, payload any) messageIn {
 	return messageIn{kind, string(m)}
 }
 
-func TestRunPeerServer_Join(t *testing.T) {
+func TestRunPeerServer_Join_Failure(t *testing.T) {
 	t.Run("fails when first message isn't of kind 'join'", func(t *testing.T) {
 		conn, rec := wsmock.NewGorillaMockAndRecorder(t)
 		go RunPeerServer("http://origin.test", conn)
@@ -40,28 +41,28 @@ func TestRunPeerServer_Join(t *testing.T) {
 		rec.NewAssertion().NextToBe(messageOut{Kind: "error-join"})
 		rec.RunAssertions(durationUnit)
 	})
-
-	t.Run("succeeds when join message is complete", func(t *testing.T) {
-		conn, rec := wsmock.NewGorillaMockAndRecorder(t)
-		go RunPeerServer("http://origin.test", conn)
-		conn.Send(messageInWithPayload("join", types.JoinPayload{
-			InteractionName: "interaction1",
-			UserId:          "user1",
-		}))
-		rec.NewAssertion().OneToContain("joined")
-		rec.RunAssertions(durationUnit)
-	})
 }
 
-func TestRunPeerServer_Offer(t *testing.T) {
-	t.Run("receives offer after join", func(t *testing.T) {
+func TestRunPeerServer_Join_Success(t *testing.T) {
+	t.Run("receives 'joined', 'offer' with 2 tracks and 'candidate' after successful join", func(t *testing.T) {
 		conn, rec := wsmock.NewGorillaMockAndRecorder(t)
 		go RunPeerServer("http://origin.test", conn)
 		conn.Send(messageInWithPayload("join", types.JoinPayload{
 			InteractionName: "interaction2",
 			UserId:          "user2",
 		}))
-		rec.NewAssertion().OneToContain("offer")
+		rec.NewAssertion().
+			OneToContain("joined").
+			OneToMatch(regexp.MustCompile("offer.*rtpmap.*rtpmap")) // 2 rtpmap => 2 tracks
+		rec.NewAssertion().
+			OneToMatch(regexp.MustCompile("candidate.*srflx"))
+
+		// log messages
+		// rec.NewAssertion().With(func(end bool, latest any, all []any) (done bool, passed bool, err string) {
+		// 	log.Printf("[rec] message received: %+v\n", latest)
+		// 	return end, true, ""
+		// })
+
 		rec.RunAssertions(10 * durationUnit)
 	})
 }
